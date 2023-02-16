@@ -1,0 +1,24 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model GuildFollows {
+  guildId           BigInt
+  followingGuildId  BigInt
+  announceChannelId BigInt?
+  boostRoleId       BigInt?
+
+  // Whether or not the followed guild accepted this follow
+  accepted Boolean @default(false)
+
+  // Each guild can have any number of followed guilds
+  @@id([guildId, followingGuildId])
+}
