@@ -8,12 +8,14 @@ import {
   SlashCommandBuilder,
 } from "discord.js";
 import pino from "pino";
+import { Command } from "../client";
+import Context from "../context";
 
 const logger = pino({
   level: "debug",
 });
 
-module.exports = {
+const command: Command = {
   data: new SlashCommandBuilder()
     .setName("boostsync")
     .setDescription("Setup boost syncing")
@@ -82,9 +84,10 @@ module.exports = {
     )
     .addSubcommand((c) =>
       c.setName("list").setDescription("List boost synced servers")
-    ),
+    )
+    .toJSON(),
 
-  async execute(db: PrismaClient, interaction: ChatInputCommandInteraction) {
+  async execute(ctx: Context, interaction: ChatInputCommandInteraction) {
     if (!interaction.guild) {
       return;
     }
@@ -100,15 +103,6 @@ module.exports = {
           "announcement_channel"
         )?.id;
 
-        logger.debug(
-          {
-            followServerID: serverIdToFollow,
-            boostRoleID: boostRoleId,
-            announcementChannelID: announcementChannelId,
-          },
-          "boostsync follow"
-        );
-
         if (serverIdToFollow === interaction.guild.id) {
           await interaction.reply({
             embeds: [
@@ -123,9 +117,7 @@ module.exports = {
           return;
         }
 
-        logger.debug({ db: db }, "command db");
-
-        const exists = await db.guildFollows.findFirst({
+        const exists = await ctx.db.guildFollows.findFirst({
           where: {
             guildId: BigInt(interaction.guild.id),
             followingGuildId: BigInt(serverIdToFollow),
@@ -171,7 +163,7 @@ module.exports = {
           "creating new follow in database"
         );
 
-        await db.guildFollows.create({
+        await ctx.db.guildFollows.create({
           data: {
             guildId: BigInt(interaction.guild.id),
             followingGuildId: BigInt(serverIdToFollow),
@@ -218,6 +210,52 @@ module.exports = {
               ),
           ],
         });
+
+        return;
+      }
+      case "list": {
+        const follows = await ctx.db.guildFollows.findMany({
+          where: {
+            guildId: BigInt(interaction.guild.id),
+          },
+        });
+
+        if (follows.length === 0) {
+          await interaction.reply({
+            embeds: [
+              new EmbedBuilder()
+                .setTitle("No follows")
+                .setDescription("You are not following any servers."),
+            ],
+          });
+
+          return;
+        }
+
+        await interaction.reply({
+          embeds: [
+            new EmbedBuilder().setTitle("Following servers").setDescription(
+              follows
+                .map((f) => {
+                  const guild = interaction.client.guilds.cache.get(
+                    f.followingGuildId.toString()
+                  );
+
+                  if (!guild) {
+                    return null;
+                  }
+
+                  return `${guild.name} - ${
+                    f.accepted ? "Accepted" : "Pending"
+                  }`;
+                })
+                .filter((g) => !!g)
+                .join("\n")
+            ),
+          ],
+        });
+
+        return;
       }
       case "unfollow": {
         const serverIdToUnfollow = interaction.options.getString(
@@ -241,7 +279,7 @@ module.exports = {
           return;
         }
 
-        await db.guildFollows.delete({
+        await ctx.db.guildFollows.delete({
           where: {
             guildId_followingGuildId: {
               guildId: BigInt(interaction.guild.id),
@@ -259,6 +297,8 @@ module.exports = {
               ),
           ],
         });
+
+        return;
       }
       case "accept": {
         const serverIdFollower = interaction.options.getString(
@@ -282,7 +322,7 @@ module.exports = {
           return;
         }
 
-        await db.guildFollows.update({
+        await ctx.db.guildFollows.update({
           where: {
             guildId_followingGuildId: {
               // We are modifying the **follower's** entry
@@ -305,6 +345,8 @@ module.exports = {
               ),
           ],
         });
+
+        return;
       }
       case "deny": {
         const serverIdFollower = interaction.options.getString(
@@ -329,7 +371,7 @@ module.exports = {
         }
 
         // Only disable, not delete
-        await db.guildFollows.update({
+        await ctx.db.guildFollows.update({
           where: {
             guildId_followingGuildId: {
               // We are modifying the **follower's** entry
@@ -352,7 +394,11 @@ module.exports = {
               ),
           ],
         });
+
+        return;
       }
     }
   },
 };
+
+export default command;

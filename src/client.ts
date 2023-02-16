@@ -4,17 +4,17 @@ import {
   Client,
   ClientOptions,
   Collection,
-  SlashCommandBuilder,
+  RESTPostAPIChatInputApplicationCommandsJSONBody,
 } from "discord.js";
 import Context from "./context";
 
-type Command = {
-  data: SlashCommandBuilder;
+export interface Command {
+  data: RESTPostAPIChatInputApplicationCommandsJSONBody;
   execute: (
     ctx: Context,
     interaction: ChatInputCommandInteraction
   ) => Promise<void>;
-};
+}
 
 export default class DiscordClient extends Client {
   applicationId: string;

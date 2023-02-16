@@ -45,8 +45,6 @@ export function registerHandlers(client: DiscordClient) {
       return;
     }
 
-    logger.debug({ db: client.db.guildFollows }, "db client guildFollows");
-
     try {
       await command.execute(
         {
