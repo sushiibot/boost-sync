@@ -1,36 +1,23 @@
-import path from "path";
-import fs from "fs";
 import DiscordClient from "./client";
 import {
   RESTPostAPIChatInputApplicationCommandsJSONBody,
   Routes,
 } from "discord.js";
 import pino from "pino";
+import syncCommand from "./commands/sync";
 
 const logger = pino();
 
 export async function registerCommands(client: DiscordClient) {
-  const commandsPath = path.join(__dirname, "commands");
-  const commandFiles = fs
-    .readdirSync(commandsPath)
-    .filter((file) => file.endsWith(".ts"));
+  const commands = [syncCommand];
 
-  for (const file of commandFiles) {
-    const filePath = path.join(commandsPath, file);
-    const command = require(filePath);
-    // Set a new item in the Collection with the key as the command name and the value as the exported module
-    if ("data" in command && "execute" in command) {
-      client.commands.set(command.data.name, command);
-    } else {
-      console.log(
-        `[WARNING] The command at ${filePath} is missing a required "data" or "execute" property.`
-      );
-    }
+  for (const command of commands) {
+    client.commands.set(command.data.name, command);
   }
 
   const commandsJson: RESTPostAPIChatInputApplicationCommandsJSONBody[] = [];
   for (const command of client.commands.values()) {
-    commandsJson.push(command.data.toJSON());
+    commandsJson.push(command.data);
   }
 
   await client.rest.put(Routes.applicationCommands(client.applicationId), {
