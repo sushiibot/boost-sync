@@ -1,18 +1,44 @@
 import { Events } from "discord.js";
 import DiscordClient from "../client";
-import pino from "pino";
 import { handleGuildMemberUpdate } from "./handleBoost";
-import { Prisma } from "@prisma/client";
-
-const logger = pino({
-  level: "debug",
-});
+import logger from "../logger";
+import { fetchGuildMembers } from "./handleGuildCreate";
 
 export function registerHandlers(client: DiscordClient) {
   // When the client is ready, run this code (only once)
   // We use 'c' for the event parameter to keep it separate from the already defined 'client'
-  client.once(Events.ClientReady, (c) => {
+  client.once(Events.ClientReady, async (c) => {
     logger.info(`Ready! Logged in as ${c.user.tag}`);
+    logger.info(
+      {
+        guilds: c.guilds.cache.size,
+      },
+      "Fetching members for all guilds."
+    );
+
+    const ps = c.guilds.cache.map((guild) => {
+      return fetchGuildMembers(guild);
+    });
+
+    const res = await Promise.allSettled(ps);
+
+    for (const r of res) {
+      if (r.status === "rejected") {
+        logger.error(
+          {
+            err: r.reason,
+          },
+          "Failed to fetch members for guild."
+        );
+      }
+    }
+
+    logger.info(
+      {
+        guilds: c.guilds.cache.size,
+      },
+      "Fetched all guild members."
+    );
   });
 
   client.on(Events.GuildMemberUpdate, (oldMember, newMember) => {
@@ -26,8 +52,8 @@ export function registerHandlers(client: DiscordClient) {
   });
 
   client.on(Events.GuildCreate, async (guild) => {
-    // Fetch boosters
-    // await guild.members.fetch();
+    // Joining new server
+    fetchGuildMembers(guild);
   });
 
   client.on(Events.InteractionCreate, async (interaction) => {

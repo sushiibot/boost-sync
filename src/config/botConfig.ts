@@ -5,6 +5,7 @@ dotenv.config();
 const schema = z.object({
   DISCORD_TOKEN: z.string(),
   APPLICATION_ID: z.string(),
+  LOG_LEVEL: z.string().optional().default("info"),
 });
 
 const parsed = schema.safeParse(process.env);
@@ -17,5 +18,7 @@ if (!parsed.success) {
 
   process.exit(1);
 }
+
+export type ConfigType = z.infer<typeof schema>;
 
 export default parsed.data;

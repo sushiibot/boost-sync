@@ -3,10 +3,9 @@ import {
   RESTPostAPIChatInputApplicationCommandsJSONBody,
   Routes,
 } from "discord.js";
-import pino from "pino";
 import syncCommand from "./commands/sync";
 
-const logger = pino();
+import logger from "./logger";
 
 export async function registerCommands(client: DiscordClient) {
   const commands = [syncCommand];
