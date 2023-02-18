@@ -22,9 +22,19 @@ export default async function syncBoosts(ctx: Context, guild: Guild) {
     },
   });
 
+  logger.debug(
+    {
+      guildId: guild.id,
+      guildName: guild.name,
+      followedGuilds: followedGuilds.length,
+    },
+    "Syncing boosts for guild..."
+  );
+
   const boostRoleToFollowedGuilds = new Map<string, GuildFollows>();
 
   for (const followedGuild of followedGuilds) {
+    // Ignore followed guilds that don't have a boost role
     if (followedGuild.boostRoleId === null) {
       continue;
     }
@@ -51,15 +61,7 @@ export default async function syncBoosts(ctx: Context, guild: Guild) {
       const followedGuildID = matchingFollowedGuild.followingGuildId.toString();
 
       // Check if the member is boosting in the followed server
-      let followedGuild = guild.client.guilds.cache.get(followedGuildID);
-      if (!followedGuild) {
-        logger.warn(
-          { guildId: followedGuildID },
-          "Guild not cached, fetching it..."
-        );
-        // Guild not cached, fetch it
-        followedGuild = await guild.client.guilds.fetch(followedGuildID);
-      }
+      let followedGuild = await guild.client.guilds.fetch(followedGuildID);
 
       try {
         // Should be cached hopefully
@@ -78,7 +80,8 @@ export default async function syncBoosts(ctx: Context, guild: Guild) {
           rolesToRemove.add(role.id);
           membersToRolesToRemove.set(member.id, rolesToRemove);
         } else {
-          // User is boosting in followed server, add boost role!
+          // User is still boosting in followed server, add boost role just
+          // so that it isn't removed by another followed server
 
           let rolesToAdd = membersToRolesToAdd.get(member.id);
           if (!rolesToAdd) {
@@ -112,6 +115,73 @@ export default async function syncBoosts(ctx: Context, guild: Guild) {
     }
   }
 
+  // Check for boosts in followed guilds -- members that don't already have the role
+  for (const follow of followedGuilds) {
+    // Ignore followed guilds that don't have a linked boost role
+    if (!follow.boostRoleId) {
+      continue;
+    }
+
+    let followedGuild: Guild;
+    try {
+      followedGuild = await guild.client.guilds.fetch(
+        follow.followingGuildId.toString()
+      );
+    } catch (err) {
+      if (err instanceof DiscordAPIError) {
+        if (err.code === RESTJSONErrorCodes.UnknownGuild) {
+          logger.warn(
+            {
+              msg: err.message,
+              code: err.code,
+              guildId: follow.guildId,
+              guildName: guild.name,
+              followingGuildId: follow.followingGuildId,
+            },
+            "Failed to fetch followed guild, removing follow"
+          );
+
+          await ctx.db.guildFollows.delete({
+            where: {
+              guildId_followingGuildId: {
+                guildId: BigInt(guild.id),
+                followingGuildId: BigInt(follow.followingGuildId),
+              },
+            },
+          });
+
+          continue;
+        }
+
+        logger.warn(
+          {
+            msg: err.message,
+            code: err.code,
+          },
+          "Failed to fetch followed guild"
+        );
+      }
+
+      logger.error({ err }, "Unknown error");
+      continue;
+    }
+
+    for (const [, member] of followedGuild.members.cache) {
+      // Skip non-boosters
+      if (!member.premiumSince) {
+        continue;
+      }
+
+      let rolesToAdd = membersToRolesToAdd.get(member.id);
+      if (!rolesToAdd) {
+        rolesToAdd = new Set();
+      }
+
+      rolesToAdd.add(follow.boostRoleId.toString());
+      membersToRolesToAdd.set(member.id, rolesToAdd);
+    }
+  }
+
   // Clean up roles to remove -- do not remove roles that are added in other guilds
   for (const [memberID, rolesToAdd] of membersToRolesToAdd) {
     const rolesToRemoveSet = membersToRolesToRemove.get(memberID);
@@ -138,8 +208,6 @@ export default async function syncBoosts(ctx: Context, guild: Guild) {
   for (const [memberID, rolesToAdd] of membersToRolesToAdd) {
     const member = await guild.members.fetch(memberID);
 
-    for (const roleID of rolesToAdd) {
-      await member.roles.add(roleID);
-    }
+    await member.roles.add([...rolesToAdd]);
   }
 }
