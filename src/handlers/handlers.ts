@@ -3,6 +3,7 @@ import DiscordClient from "../client";
 import { handleGuildMemberUpdate } from "./handleBoost";
 import logger from "../logger";
 import { fetchGuildMembers } from "./handleGuildCreate";
+import syncBoosts from "./syncBoosts";
 
 export function registerHandlers(client: DiscordClient) {
   // When the client is ready, run this code (only once)
@@ -38,6 +39,36 @@ export function registerHandlers(client: DiscordClient) {
         guilds: c.guilds.cache.size,
       },
       "Fetched all guild members."
+    );
+
+    // Sync boosts
+
+    const syncProms = c.guilds.cache.map((guild) => {
+      return syncBoosts(
+        {
+          db: client.db,
+        },
+        guild
+      );
+    });
+
+    const syncRes = await Promise.allSettled(syncProms);
+    for (const r of syncRes) {
+      if (r.status === "rejected") {
+        logger.error(
+          {
+            err: r.reason,
+          },
+          "Failed to sync boosts for guild."
+        );
+      }
+    }
+
+    logger.info(
+      {
+        guilds: c.guilds.cache.size,
+      },
+      "Synced all boosts in all guilds."
     );
   });
 
