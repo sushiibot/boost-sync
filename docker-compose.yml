@@ -1,6 +1,6 @@
 services:
     sushii_boost:
-        name: sushii_bost
+        container_name: sushii_bost
         restart: unless-stopped
         build:
             dockerfile: ./Dockerfile
