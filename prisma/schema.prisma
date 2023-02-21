@@ -10,6 +10,12 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+model GuildConfig {
+  guildId BigInt @id
+
+  logChannel BigInt
+}
+
 model GuildFollows {
   guildId           BigInt
   followingGuildId  BigInt

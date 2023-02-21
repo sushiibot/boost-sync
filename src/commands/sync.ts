@@ -10,6 +10,7 @@ import {
 import pino from "pino";
 import { Command } from "../client";
 import Context from "../context";
+import syncBoosts from "../handlers/syncBoosts";
 
 const logger = pino({
   level: "debug",
@@ -88,7 +89,7 @@ const command: Command = {
     .toJSON(),
 
   async execute(ctx: Context, interaction: ChatInputCommandInteraction) {
-    if (!interaction.guild) {
+    if (!interaction.guild || !interaction.guildId) {
       return;
     }
 
@@ -124,18 +125,6 @@ const command: Command = {
           },
         });
 
-        if (exists) {
-          await interaction.reply({
-            embeds: [
-              new EmbedBuilder()
-                .setTitle("Could not follow server")
-                .setDescription("You are already following this server."),
-            ],
-          });
-
-          return;
-        }
-
         // Check if the server is valid
         let serverToFollow: Guild;
         try {
@@ -159,12 +148,25 @@ const command: Command = {
             followServerID: serverIdToFollow,
             boostRoleID: boostRoleId,
             announcementChannelID: announcementChannelId,
+            isUpdateExisting: exists !== null,
           },
-          "creating new follow in database"
+          "creating or updating new follow in database"
         );
 
-        await ctx.db.guildFollows.create({
-          data: {
+        await ctx.db.guildFollows.upsert({
+          where: {
+            guildId_followingGuildId: {
+              guildId: BigInt(interaction.guild.id),
+              followingGuildId: BigInt(serverIdToFollow),
+            },
+          },
+          update: {
+            boostRoleId: boostRoleId ? BigInt(boostRoleId) : null,
+            announceChannelId: announcementChannelId
+              ? BigInt(announcementChannelId)
+              : null,
+          },
+          create: {
             guildId: BigInt(interaction.guild.id),
             followingGuildId: BigInt(serverIdToFollow),
             boostRoleId: boostRoleId ? BigInt(boostRoleId) : null,
@@ -182,17 +184,13 @@ const command: Command = {
             boostRoleID: boostRoleId,
             announcementChannelID: announcementChannelId,
           },
-          "created new follow in database"
+          "created or updated new follow in database"
         );
 
-        await interaction.reply({
-          embeds: [
-            new EmbedBuilder()
-              .setTitle("Created Follow")
-              .setDescription(
-                `You need to accept this follow in the **${serverToFollow.name}** server with \`/boostsync accept\`.`
-              )
-              .setFields(
+        if (exists) {
+          await interaction.reply({
+            embeds: [
+              new EmbedBuilder().setTitle("Updated Follow").setFields(
                 {
                   name: "Following server",
                   value: serverToFollow.name,
@@ -208,8 +206,35 @@ const command: Command = {
                     : "None",
                 }
               ),
-          ],
-        });
+            ],
+          });
+        } else {
+          await interaction.reply({
+            embeds: [
+              new EmbedBuilder()
+                .setTitle("Created Follow")
+                .setDescription(
+                  `You need to accept this follow in the **${serverToFollow.name}** server with \`/boostsync accept\`.`
+                )
+                .setFields(
+                  {
+                    name: "Following server",
+                    value: serverToFollow.name,
+                  },
+                  {
+                    name: "Boost role",
+                    value: boostRoleId ? `<@&${boostRoleId}>` : "None",
+                  },
+                  {
+                    name: "Announcement channel",
+                    value: announcementChannelId
+                      ? `<#${announcementChannelId}>`
+                      : "None",
+                  }
+                ),
+            ],
+          });
+        }
 
         return;
       }
@@ -322,26 +347,67 @@ const command: Command = {
           return;
         }
 
-        await ctx.db.guildFollows.update({
-          where: {
-            guildId_followingGuildId: {
-              // We are modifying the **follower's** entry
-              guildId: BigInt(serverIdFollower),
-              followingGuildId: BigInt(interaction.guild.id),
+        const { announceChannelId, boostRoleId } =
+          await ctx.db.guildFollows.update({
+            where: {
+              guildId_followingGuildId: {
+                // We are modifying the **follower's** entry
+                guildId: BigInt(serverIdFollower),
+                followingGuildId: BigInt(interaction.guild.id),
+              },
             },
-          },
-          data: {
-            accepted: true,
-          },
-        });
+            data: {
+              accepted: true,
+            },
+            select: {
+              boostRoleId: true,
+              announceChannelId: true,
+            },
+          });
+
+        let description = `Boosts in this server are now followed by **${serverToAccept.name}**.`;
+
+        if (announceChannelId) {
+          description += `\nI will announce boosts in <#${announceChannelId}>.`;
+        }
+
+        if (boostRoleId) {
+          description += `\nA role sync has been started for existing boosts, I'll let you know when it's done.`;
+        }
 
         await interaction.reply({
           embeds: [
             new EmbedBuilder()
-
               .setTitle("Accepted follow from server")
-              .setDescription(
-                `Boosts in this server are now followed by **${serverToAccept.name}**.`
+              .setDescription(description),
+          ],
+        });
+
+        // No boost role, no sync needed
+        if (!boostRoleId) {
+          return;
+        }
+
+        const { membersRoleAdded, membersRoleRemoved } = await syncBoosts(
+          ctx,
+          serverToAccept,
+          // Only sync for this guild
+          [interaction.guildId]
+        );
+
+        interaction.followUp({
+          embeds: [
+            new EmbedBuilder()
+              .setTitle(`Boosts have been synced to ${serverToAccept.name}`)
+              .addFields(
+                {
+                  name: "Boosters given boost role",
+                  value: membersRoleAdded.toLocaleString(),
+                },
+                {
+                  name: "Non-boosters removed boost role",
+                  value: membersRoleRemoved.toLocaleString(),
+                }
               ),
           ],
         });

@@ -4,10 +4,21 @@ import DiscordClient from "./client";
 import { registerCommands } from "./commands";
 import config from "./config/botConfig";
 import { registerHandlers } from "./handlers/handlers";
+import logger from "./logger";
 
 const db = new PrismaClient();
 
 async function main() {
+  logger.info(
+    {
+      ...{
+        ...config,
+        DISCORD_TOKEN: "********",
+      },
+    },
+    "Starting bot with config"
+  );
+
   const client = new DiscordClient(
     {
       intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers],
@@ -21,6 +32,8 @@ async function main() {
 
   await registerCommands(client);
   registerHandlers(client);
+
+  logger.info("Starting bot...");
 
   // Log in to Discord with your client's token
   await client.login(config.DISCORD_TOKEN);
