@@ -7,6 +7,12 @@ import {
 } from "discord.js";
 import Context from "../context";
 import logger from "../logger";
+import config from "../config/botConfig";
+
+interface SyncResult {
+  membersRoleRemoved: number;
+  membersRoleAdded: number;
+}
 
 /**
  * Synchronizes a guild with its followed guilds. This only modifies roles in
@@ -15,7 +21,11 @@ import logger from "../logger";
  * @param ctx
  * @param guild
  */
-export default async function syncBoosts(ctx: Context, guild: Guild) {
+export default async function syncBoosts(
+  ctx: Context,
+  guild: Guild,
+  syncOnlyFollowedGuildIds?: string[]
+): Promise<SyncResult> {
   const followedGuilds = await ctx.db.guildFollows.findMany({
     where: {
       guildId: BigInt(guild.id),
@@ -39,6 +49,15 @@ export default async function syncBoosts(ctx: Context, guild: Guild) {
       continue;
     }
 
+    if (
+      syncOnlyFollowedGuildIds &&
+      syncOnlyFollowedGuildIds.includes(
+        followedGuild.followingGuildId.toString()
+      )
+    ) {
+      continue;
+    }
+
     boostRoleToFollowedGuilds.set(
       followedGuild.boostRoleId.toString(),
       followedGuild
@@ -52,13 +71,14 @@ export default async function syncBoosts(ctx: Context, guild: Guild) {
     // Check **followed** servers if this member is boosting
     // Ensure the member has the boost role if they are boosting
     for (const [, role] of member.roles.cache) {
-      const matchingFollowedGuild = boostRoleToFollowedGuilds.get(role.id);
-      if (!matchingFollowedGuild) {
+      const follow = boostRoleToFollowedGuilds.get(role.id);
+      if (!follow || !follow.boostRoleId) {
         // Not a boosting role, ignore
+        // Follow doesn't have a boost role, ignore (this shouldn't happen but just a type check)
         continue;
       }
 
-      const followedGuildID = matchingFollowedGuild.followingGuildId.toString();
+      const followedGuildID = follow.followingGuildId.toString();
 
       // Check if the member is boosting in the followed server
       let followedGuild = await guild.client.guilds.fetch(followedGuildID);
@@ -72,24 +92,34 @@ export default async function syncBoosts(ctx: Context, guild: Guild) {
         // No longer boosting in followed server, remove boost role ONLY if there
         // are no other followed servers that give the same boost role
         if (!memberInFollowedGuild.premiumSince) {
-          let rolesToRemove = membersToRolesToRemove.get(member.id);
-          if (!rolesToRemove) {
-            rolesToRemove = new Set();
-          }
+          logger.debug(
+            {
+              guildId: guild.id,
+              guildName: guild.name,
+              followedGuildId: followedGuild.id,
+              followedGuildName: followedGuild.name,
+              memberId: member.id,
+              memberName: member.user.tag,
+              boostRoleId: follow.boostRoleId,
+              premiumSince: member.premiumSince,
+            },
+            "Found member no longer boosting in followed guild"
+          );
 
-          rolesToRemove.add(role.id);
-          membersToRolesToRemove.set(member.id, rolesToRemove);
+          mapSetValue(
+            membersToRolesToRemove,
+            member.id,
+            follow.boostRoleId.toString()
+          );
         } else {
           // User is still boosting in followed server, add boost role just
           // so that it isn't removed by another followed server
 
-          let rolesToAdd = membersToRolesToAdd.get(member.id);
-          if (!rolesToAdd) {
-            rolesToAdd = new Set();
-          }
-
-          rolesToAdd.add(role.id);
-          membersToRolesToAdd.set(member.id, rolesToAdd);
+          mapSetValue(
+            membersToRolesToAdd,
+            member.id,
+            follow.boostRoleId.toString()
+          );
         }
       } catch (err) {
         if (err instanceof DiscordAPIError) {
@@ -99,12 +129,16 @@ export default async function syncBoosts(ctx: Context, guild: Guild) {
                 msg: err.message,
                 code: err.code,
               },
-              "Failed to fetch member in followed guild, removing boost role"
+              "Member not in followed guild"
             );
 
             // User is no longer in followed server, so they should have their
             // boost role removed.
-            await member.roles.remove(role.id);
+            mapSetValue(
+              membersToRolesToRemove,
+              member.id,
+              follow.boostRoleId.toString()
+            );
 
             continue;
           }
@@ -119,6 +153,14 @@ export default async function syncBoosts(ctx: Context, guild: Guild) {
   for (const follow of followedGuilds) {
     // Ignore followed guilds that don't have a linked boost role
     if (!follow.boostRoleId) {
+      continue;
+    }
+
+    // Ignore if subset of followed guilds is specified
+    if (
+      syncOnlyFollowedGuildIds &&
+      syncOnlyFollowedGuildIds.includes(follow.followingGuildId.toString())
+    ) {
       continue;
     }
 
@@ -138,17 +180,10 @@ export default async function syncBoosts(ctx: Context, guild: Guild) {
               guildName: guild.name,
               followingGuildId: follow.followingGuildId,
             },
-            "Failed to fetch followed guild, removing follow"
+            "Failed to fetch followed guild (not added to server or removed)"
           );
 
-          await ctx.db.guildFollows.delete({
-            where: {
-              guildId_followingGuildId: {
-                guildId: BigInt(guild.id),
-                followingGuildId: BigInt(follow.followingGuildId),
-              },
-            },
-          });
+          // TODO: The boost role should be removed from everyone?
 
           continue;
         }
@@ -158,7 +193,7 @@ export default async function syncBoosts(ctx: Context, guild: Guild) {
             msg: err.message,
             code: err.code,
           },
-          "Failed to fetch followed guild"
+          "Error fetching followed guild"
         );
       }
 
@@ -166,19 +201,32 @@ export default async function syncBoosts(ctx: Context, guild: Guild) {
       continue;
     }
 
+    // Look for new boosters in followed guild
     for (const [, member] of followedGuild.members.cache) {
       // Skip non-boosters
       if (!member.premiumSince) {
         continue;
       }
 
-      let rolesToAdd = membersToRolesToAdd.get(member.id);
-      if (!rolesToAdd) {
-        rolesToAdd = new Set();
-      }
+      logger.debug(
+        {
+          guildId: guild.id,
+          guildName: guild.name,
+          followedGuildId: followedGuild.id,
+          followedGuildName: followedGuild.name,
+          memberId: member.id,
+          memberName: member.user.tag,
+          boostRoleId: follow.boostRoleId,
+          premiumSince: member.premiumSince,
+        },
+        "Found booster in followed guild, adding boost role..."
+      );
 
-      rolesToAdd.add(follow.boostRoleId.toString());
-      membersToRolesToAdd.set(member.id, rolesToAdd);
+      mapSetValue(
+        membersToRolesToAdd,
+        member.id,
+        follow.boostRoleId.toString()
+      );
     }
   }
 
@@ -199,8 +247,19 @@ export default async function syncBoosts(ctx: Context, guild: Guild) {
   for (const [memberID, rolesToRemove] of membersToRolesToRemove) {
     const member = await guild.members.fetch(memberID);
 
-    for (const roleID of rolesToRemove) {
-      await member.roles.remove(roleID);
+    logger.debug(
+      {
+        guildId: guild.id,
+        guildName: guild.name,
+        memberId: member.id,
+        memberName: member.user.tag,
+        rolesRemoved: [...rolesToRemove],
+      },
+      "Removed boost roles to member"
+    );
+
+    if (!config.DRY_RUN) {
+      await member.roles.remove([...rolesToRemove]);
     }
   }
 
@@ -208,6 +267,34 @@ export default async function syncBoosts(ctx: Context, guild: Guild) {
   for (const [memberID, rolesToAdd] of membersToRolesToAdd) {
     const member = await guild.members.fetch(memberID);
 
-    await member.roles.add([...rolesToAdd]);
+    logger.debug(
+      {
+        guildId: guild.id,
+        guildName: guild.name,
+        memberId: member.id,
+        memberName: member.user.tag,
+        rolesAdded: [...rolesToAdd],
+      },
+      "Added boost roles to member"
+    );
+
+    if (!config.DRY_RUN) {
+      await member.roles.add([...rolesToAdd]);
+    }
   }
+
+  return {
+    membersRoleAdded: membersToRolesToAdd.size,
+    membersRoleRemoved: membersToRolesToRemove.size,
+  };
+}
+
+function mapSetValue<T1, T2>(map: Map<T1, Set<T2>>, key: T1, value: T2) {
+  let set = map.get(key);
+  if (!set) {
+    set = new Set();
+  }
+
+  set.add(value);
+  map.set(key, set);
 }

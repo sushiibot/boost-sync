@@ -5,7 +5,7 @@ export async function fetchGuildMembers(guild: Guild) {
   logger.info(
     {
       id: guild.id,
-      name: guild.name,
+      guildName: guild.name,
     },
     "Fetching members for guild..."
   );
@@ -15,7 +15,7 @@ export async function fetchGuildMembers(guild: Guild) {
   logger.info(
     {
       id: guild.id,
-      name: guild.name,
+      guildName: guild.name,
       members: members.size,
     },
     "Fetched guild members."

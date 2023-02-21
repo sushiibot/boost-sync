@@ -41,8 +41,7 @@ export function registerHandlers(client: DiscordClient) {
       "Fetched all guild members."
     );
 
-    // Sync boosts
-
+    // Sync boosts on startup
     const syncProms = c.guilds.cache.map((guild) => {
       return syncBoosts(
         {

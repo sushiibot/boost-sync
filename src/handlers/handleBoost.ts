@@ -162,7 +162,7 @@ async function handleBoostAdded(ctx: Context, member: GuildMember) {
       }
 
       await followerAnnounceChannel.send(
-        `${member.user.tag} just boosted ${member.guild.name}!`
+        `<:boost:1077423932853993522> <@${member.user.id}> just boosted ${member.guild.name}!`
       );
 
       logger.debug(
