@@ -1,0 +1,19 @@
+services:
+    sushii_boost:
+        name: sushii_bost
+        restart: unless-stopped
+        build:
+            dockerfile: ./Dockerfile
+            context: .
+        logging:
+            options:
+                max-size: "10m"
+                max-file: "3"
+        volumes:
+            - ./data:/data
+        environment:
+            - DATABASE_URL="file:/data/db.sqlite"
+            - DISCORD_TOKEN=${DISCORD_TOKEN}
+            - APPLICATION_ID="992502410759127121"
+            - LOG_LEVEL=debug
+            - DRY_RUN=false
