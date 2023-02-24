@@ -23,8 +23,7 @@ interface SyncResult {
  */
 export default async function syncBoosts(
   ctx: Context,
-  guild: Guild,
-  syncOnlyFollowedGuildIds?: string[]
+  guild: Guild
 ): Promise<SyncResult> {
   const followedGuilds = await ctx.db.guildFollows.findMany({
     where: {
@@ -46,15 +45,6 @@ export default async function syncBoosts(
   for (const followedGuild of followedGuilds) {
     // Ignore followed guilds that don't have a boost role
     if (followedGuild.boostRoleId === null) {
-      continue;
-    }
-
-    if (
-      syncOnlyFollowedGuildIds &&
-      syncOnlyFollowedGuildIds.includes(
-        followedGuild.followingGuildId.toString()
-      )
-    ) {
       continue;
     }
 
@@ -156,14 +146,6 @@ export default async function syncBoosts(
       continue;
     }
 
-    // Ignore if subset of followed guilds is specified
-    if (
-      syncOnlyFollowedGuildIds &&
-      syncOnlyFollowedGuildIds.includes(follow.followingGuildId.toString())
-    ) {
-      continue;
-    }
-
     let followedGuild: Guild;
     try {
       followedGuild = await guild.client.guilds.fetch(
@@ -253,6 +235,7 @@ export default async function syncBoosts(
         guildName: guild.name,
         memberId: member.id,
         memberName: member.user.tag,
+        dryRun: config.DRY_RUN,
         rolesRemoved: [...rolesToRemove],
       },
       "Removed boost roles to member"
@@ -273,6 +256,7 @@ export default async function syncBoosts(
         guildName: guild.name,
         memberId: member.id,
         memberName: member.user.tag,
+        dryRun: config.DRY_RUN,
         rolesAdded: [...rolesToAdd],
       },
       "Added boost roles to member"
@@ -282,6 +266,15 @@ export default async function syncBoosts(
       await member.roles.add([...rolesToAdd]);
     }
   }
+
+  logger.debug(
+    {
+      guildId: guild.id,
+      guildName: guild.name,
+      followedGuilds: followedGuilds.length,
+    },
+    "Done boost sync for guild"
+  );
 
   return {
     membersRoleAdded: membersToRolesToAdd.size,
