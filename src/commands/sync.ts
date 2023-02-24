@@ -390,9 +390,7 @@ const command: Command = {
 
         const { membersRoleAdded, membersRoleRemoved } = await syncBoosts(
           ctx,
-          serverToAccept,
-          // Only sync for this guild
-          [interaction.guildId]
+          serverToAccept
         );
 
         interaction.followUp({

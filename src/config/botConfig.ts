@@ -6,7 +6,7 @@ const schema = z.object({
   DISCORD_TOKEN: z.string(),
   APPLICATION_ID: z.string(),
   LOG_LEVEL: z.string().optional().default("info"),
-  DRY_RUN: z.coerce.boolean().optional().default(false),
+  DRY_RUN: z.coerce.boolean().default(false),
 });
 
 const parsed = schema.safeParse(process.env);
