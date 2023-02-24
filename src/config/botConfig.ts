@@ -8,8 +8,8 @@ const schema = z.object({
   LOG_LEVEL: z.string().optional().default("info"),
   DRY_RUN: z
     .string()
-    .transform((value) => value === "true")
-    .default(false),
+    .default("false")
+    .transform((value) => value === "true"),
 });
 
 const parsed = schema.safeParse(process.env);
