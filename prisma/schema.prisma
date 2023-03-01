@@ -13,14 +13,23 @@ datasource db {
 model GuildConfig {
   guildId BigInt @id
 
-  logChannel BigInt
+  logChannel              BigInt
+  // The channel to send boost announcements to.
+  announceChannelId       BigInt?
+  // The message template to use when announcing a new boost in the current
+  // guild, not for any other guilds. This is used as a replacement, or
+  // supplement to the native boost message.
+  announceMessageTemplate String?
 }
 
 model GuildFollows {
   guildId           BigInt
   followingGuildId  BigInt
   announceChannelId BigInt?
-  boostRoleId       BigInt?
+
+  // The message template to use when announcing a new boost in the guild that is following
+  announceMessageTemplate String?
+  boostRoleId             BigInt?
 
   // Whether or not the followed guild accepted this follow
   accepted Boolean @default(false)
