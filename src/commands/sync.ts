@@ -86,6 +86,18 @@ const command: Command = {
     .addSubcommand((c) =>
       c.setName("list").setDescription("List boost synced servers")
     )
+    .addSubcommand((c) =>
+      c
+        .setName("logchannel")
+        .setDescription("Set the log channel for boosts in followed servers")
+        .addChannelOption((o) =>
+          o
+            .setName("log_channel")
+            .setDescription("The channel to send followed boost logs to")
+            .addChannelTypes(ChannelType.GuildText)
+            .setRequired(true)
+        )
+    )
     .toJSON(),
 
   async execute(ctx: Context, interaction: ChatInputCommandInteraction) {
@@ -460,6 +472,32 @@ const command: Command = {
         });
 
         return;
+      }
+      case "logchannel": {
+        const logChannel = interaction.options.getChannel("log_channel", true);
+
+        await ctx.db.guildConfig.upsert({
+          where: {
+            guildId: BigInt(interaction.guildId),
+          },
+          create: {
+            guildId: BigInt(interaction.guildId),
+            logChannel: BigInt(logChannel.id),
+          },
+          update: {
+            logChannel: BigInt(logChannel.id),
+          },
+        });
+
+        await interaction.reply({
+          embeds: [
+            new EmbedBuilder()
+              .setTitle("Updated log channel")
+              .setDescription(
+                `Boosts in followed servers will be logged in <#${logChannel.id}>`
+              ),
+          ],
+        });
       }
     }
   },
