@@ -223,6 +223,11 @@ export default async function syncBoosts(
     for (const roleID of rolesToAdd) {
       rolesToRemoveSet.delete(roleID);
     }
+
+    // No roles to remove, remove entire member from map
+    if (rolesToRemoveSet.size === 0) {
+      membersToRolesToAdd.delete(memberID);
+    }
   }
 
   // Remove roles
@@ -242,7 +247,7 @@ export default async function syncBoosts(
     );
 
     if (!config.DRY_RUN) {
-      await member.roles.remove([...rolesToRemove]);
+      await member.roles.remove([...rolesToRemove], "Synced boost role");
     }
   }
 
@@ -263,7 +268,7 @@ export default async function syncBoosts(
     );
 
     if (!config.DRY_RUN) {
-      await member.roles.add([...rolesToAdd]);
+      await member.roles.add([...rolesToAdd], "Synced boost role");
     }
   }
 
